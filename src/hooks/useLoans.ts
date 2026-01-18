@@ -3,13 +3,12 @@ import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
 
 type Loan = Database['public']['Tables']['loans']['Row'];
-type LoanApproval = Database['public']['Tables']['loan_approvals']['Row'];
 
 export interface LoanWithMember extends Loan {
-  members: {
+  member?: {
     member_number: string;
     user_id: string;
-    profiles: {
+    profile?: {
       first_name: string;
       last_name: string;
       email: string;
@@ -21,20 +20,52 @@ export const useLoans = () => {
   return useQuery({
     queryKey: ['loans'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: loans, error: loansError } = await supabase
         .from('loans')
-        .select(`
-          *,
-          members (
-            member_number,
-            user_id,
-            profiles (first_name, last_name, email)
-          )
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      return data as LoanWithMember[];
+      if (loansError) throw loansError;
+      if (!loans) return [];
+
+      // Get unique member IDs
+      const memberIds = [...new Set(loans.map(l => l.member_id))];
+      
+      const { data: members, error: membersError } = await supabase
+        .from('members')
+        .select('id, member_number, user_id')
+        .in('id', memberIds);
+
+      if (membersError) throw membersError;
+
+      // Get profiles for members
+      const userIds = members?.map(m => m.user_id) || [];
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, email')
+        .in('id', userIds);
+
+      if (profilesError) throw profilesError;
+
+      // Combine data
+      const result: LoanWithMember[] = loans.map(loan => {
+        const member = members?.find(m => m.id === loan.member_id);
+        const profile = member ? profiles?.find(p => p.id === member.user_id) : null;
+        return {
+          ...loan,
+          member: member ? {
+            member_number: member.member_number,
+            user_id: member.user_id,
+            profile: profile ? {
+              first_name: profile.first_name,
+              last_name: profile.last_name,
+              email: profile.email,
+            } : null,
+          } : null,
+        };
+      });
+
+      return result;
     },
   });
 };
@@ -62,23 +93,50 @@ export const usePendingLoans = (approvalStage?: string) => {
   return useQuery({
     queryKey: ['loans', 'pending', approvalStage],
     queryFn: async () => {
-      let query = supabase
+      const { data: loans, error: loansError } = await supabase
         .from('loans')
-        .select(`
-          *,
-          members (
-            member_number,
-            user_id,
-            profiles (first_name, last_name, email)
-          )
-        `)
+        .select('*')
         .eq('status', 'pending_approval')
         .order('application_date', { ascending: false });
 
-      const { data, error } = await query;
+      if (loansError) throw loansError;
+      if (!loans) return [];
 
-      if (error) throw error;
-      return data as LoanWithMember[];
+      const memberIds = [...new Set(loans.map(l => l.member_id))];
+      
+      const { data: members, error: membersError } = await supabase
+        .from('members')
+        .select('id, member_number, user_id')
+        .in('id', memberIds);
+
+      if (membersError) throw membersError;
+
+      const userIds = members?.map(m => m.user_id) || [];
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, email')
+        .in('id', userIds);
+
+      if (profilesError) throw profilesError;
+
+      const result: LoanWithMember[] = loans.map(loan => {
+        const member = members?.find(m => m.id === loan.member_id);
+        const profile = member ? profiles?.find(p => p.id === member.user_id) : null;
+        return {
+          ...loan,
+          member: member ? {
+            member_number: member.member_number,
+            user_id: member.user_id,
+            profile: profile ? {
+              first_name: profile.first_name,
+              last_name: profile.last_name,
+              email: profile.email,
+            } : null,
+          } : null,
+        };
+      });
+
+      return result;
     },
   });
 };
@@ -87,21 +145,50 @@ export const useApprovedLoans = () => {
   return useQuery({
     queryKey: ['loans', 'approved'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: loans, error: loansError } = await supabase
         .from('loans')
-        .select(`
-          *,
-          members (
-            member_number,
-            user_id,
-            profiles (first_name, last_name, email)
-          )
-        `)
+        .select('*')
         .eq('status', 'approved')
         .order('approval_date', { ascending: false });
 
-      if (error) throw error;
-      return data as LoanWithMember[];
+      if (loansError) throw loansError;
+      if (!loans) return [];
+
+      const memberIds = [...new Set(loans.map(l => l.member_id))];
+      
+      const { data: members, error: membersError } = await supabase
+        .from('members')
+        .select('id, member_number, user_id')
+        .in('id', memberIds);
+
+      if (membersError) throw membersError;
+
+      const userIds = members?.map(m => m.user_id) || [];
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, email')
+        .in('id', userIds);
+
+      if (profilesError) throw profilesError;
+
+      const result: LoanWithMember[] = loans.map(loan => {
+        const member = members?.find(m => m.id === loan.member_id);
+        const profile = member ? profiles?.find(p => p.id === member.user_id) : null;
+        return {
+          ...loan,
+          member: member ? {
+            member_number: member.member_number,
+            user_id: member.user_id,
+            profile: profile ? {
+              first_name: profile.first_name,
+              last_name: profile.last_name,
+              email: profile.email,
+            } : null,
+          } : null,
+        };
+      });
+
+      return result;
     },
   });
 };
@@ -164,7 +251,7 @@ export const useApproveLoan = () => {
 
       if (approvalError) throw approvalError;
 
-      // Update loan status if rejected or final approval
+      // Update loan status if rejected
       if (decision === 'rejected') {
         const { error: updateError } = await supabase
           .from('loans')

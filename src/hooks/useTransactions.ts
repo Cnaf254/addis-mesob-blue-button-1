@@ -5,9 +5,9 @@ import type { Database } from '@/integrations/supabase/types';
 type Transaction = Database['public']['Tables']['transactions']['Row'];
 
 export interface TransactionWithMember extends Transaction {
-  members: {
+  member?: {
     member_number: string;
-    profiles: {
+    profile?: {
       first_name: string;
       last_name: string;
     } | null;
@@ -20,23 +20,51 @@ export const useTransactions = (limit?: number) => {
     queryFn: async () => {
       let query = supabase
         .from('transactions')
-        .select(`
-          *,
-          members (
-            member_number,
-            profiles (first_name, last_name)
-          )
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (limit) {
         query = query.limit(limit);
       }
 
-      const { data, error } = await query;
+      const { data: transactions, error: transactionsError } = await query;
 
-      if (error) throw error;
-      return data as TransactionWithMember[];
+      if (transactionsError) throw transactionsError;
+      if (!transactions) return [];
+
+      const memberIds = [...new Set(transactions.map(t => t.member_id))];
+      
+      const { data: members, error: membersError } = await supabase
+        .from('members')
+        .select('id, member_number, user_id')
+        .in('id', memberIds);
+
+      if (membersError) throw membersError;
+
+      const userIds = members?.map(m => m.user_id) || [];
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name')
+        .in('id', userIds);
+
+      if (profilesError) throw profilesError;
+
+      const result: TransactionWithMember[] = transactions.map(transaction => {
+        const member = members?.find(m => m.id === transaction.member_id);
+        const profile = member ? profiles?.find(p => p.id === member.user_id) : null;
+        return {
+          ...transaction,
+          member: member ? {
+            member_number: member.member_number,
+            profile: profile ? {
+              first_name: profile.first_name,
+              last_name: profile.last_name,
+            } : null,
+          } : null,
+        };
+      });
+
+      return result;
     },
   });
 };

@@ -5,10 +5,10 @@ import type { Database } from '@/integrations/supabase/types';
 type SavingsAccount = Database['public']['Tables']['savings_accounts']['Row'];
 
 export interface SavingsWithMember extends SavingsAccount {
-  members: {
+  member?: {
     member_number: string;
     user_id: string;
-    profiles: {
+    profile?: {
       first_name: string;
       last_name: string;
       email: string;
@@ -20,20 +20,49 @@ export const useSavingsAccounts = () => {
   return useQuery({
     queryKey: ['savings'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: savings, error: savingsError } = await supabase
         .from('savings_accounts')
-        .select(`
-          *,
-          members (
-            member_number,
-            user_id,
-            profiles (first_name, last_name, email)
-          )
-        `)
+        .select('*')
         .order('balance', { ascending: false });
 
-      if (error) throw error;
-      return data as SavingsWithMember[];
+      if (savingsError) throw savingsError;
+      if (!savings) return [];
+
+      const memberIds = [...new Set(savings.map(s => s.member_id))];
+      
+      const { data: members, error: membersError } = await supabase
+        .from('members')
+        .select('id, member_number, user_id')
+        .in('id', memberIds);
+
+      if (membersError) throw membersError;
+
+      const userIds = members?.map(m => m.user_id) || [];
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, email')
+        .in('id', userIds);
+
+      if (profilesError) throw profilesError;
+
+      const result: SavingsWithMember[] = savings.map(account => {
+        const member = members?.find(m => m.id === account.member_id);
+        const profile = member ? profiles?.find(p => p.id === member.user_id) : null;
+        return {
+          ...account,
+          member: member ? {
+            member_number: member.member_number,
+            user_id: member.user_id,
+            profile: profile ? {
+              first_name: profile.first_name,
+              last_name: profile.last_name,
+              email: profile.email,
+            } : null,
+          } : null,
+        };
+      });
+
+      return result;
     },
   });
 };

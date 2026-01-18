@@ -15,43 +15,21 @@ import {
   Trash2,
   Eye,
   Plus,
-  Download
+  Download,
+  Loader2
 } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from '@/components/ui/table';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  dummyMembers,
-  dummyAuditLogs,
-  dashboardStats,
-  formatCurrency,
-  formatDate,
-} from '@/data/dummyData';
-
-const adminUser = {
-  firstName: 'Admin',
-  lastName: 'User',
-  email: 'admin@addismesob.com',
-  role: 'admin',
-  avatarUrl: null,
-};
+import { useAuth } from '@/contexts/AuthContext';
+import { useAdminDashboard } from '@/hooks/useDashboardData';
+import { useMembers } from '@/hooks/useMembers';
+import { dummyMembers, dummyAuditLogs, dashboardStats, formatCurrency, formatDate } from '@/data/dummyData';
 
 const navigation = [
   { name: 'Overview', icon: LayoutDashboard, href: '/admin' },
@@ -71,7 +49,36 @@ const switchPortals = [
 const SystemAdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
-  const stats = dashboardStats.admin;
+  const { profile, user } = useAuth();
+  const { memberStats, loanStats, savingsStats, isLoading } = useAdminDashboard();
+  const { data: members } = useMembers();
+
+  const isAuthenticated = !!user;
+
+  const adminUser = profile ? {
+    firstName: profile.first_name,
+    lastName: profile.last_name,
+    email: profile.email,
+    role: 'admin',
+    avatarUrl: profile.avatar_url,
+  } : {
+    firstName: 'Admin',
+    lastName: 'User',
+    email: 'admin@addismesob.com',
+    role: 'admin',
+    avatarUrl: null,
+  };
+
+  const stats = isAuthenticated && memberStats ? {
+    totalMembers: memberStats.total,
+    activeMembers: memberStats.active,
+    pendingApprovals: memberStats.pending,
+    totalSavings: savingsStats?.totalBalance || 0,
+    totalLoansActive: loanStats?.repaying || 0,
+    totalLoanAmount: loanStats?.totalAmount || 0,
+    systemUsers: 12,
+    auditLogsToday: 45,
+  } : dashboardStats.admin;
 
   const statCards = [
     { title: 'Total Members', value: stats.totalMembers, icon: Users, color: 'text-blue-600' },
@@ -84,7 +91,20 @@ const SystemAdminDashboard: React.FC = () => {
     { title: 'Audit Logs Today', value: stats.auditLogsToday, icon: ClipboardList, color: 'text-gray-600' },
   ];
 
-  const filteredMembers = dummyMembers.filter(member =>
+  const displayMembers = isAuthenticated && members?.length
+    ? members.map(m => ({
+        id: m.id,
+        memberNumber: m.member_number,
+        firstName: m.profile?.first_name || '',
+        lastName: m.profile?.last_name || '',
+        email: m.profile?.email || '',
+        status: m.status,
+        savingsBalance: 0,
+        joinDate: m.created_at,
+      }))
+    : dummyMembers;
+
+  const filteredMembers = displayMembers.filter(member =>
     member.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     member.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     member.memberNumber.toLowerCase().includes(searchTerm.toLowerCase())
@@ -100,34 +120,30 @@ const SystemAdminDashboard: React.FC = () => {
     return <Badge variant={variants[status] || 'outline'}>{status}</Badge>;
   };
 
+  if (isLoading && isAuthenticated) {
+    return (
+      <DashboardLayout navigation={navigation} portalName="Addis Mesob" portalSubtitle="System Admin" user={adminUser} switchPortals={switchPortals}>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
-    <DashboardLayout
-      navigation={navigation}
-      portalName="Addis Mesob"
-      portalSubtitle="System Admin"
-      user={adminUser}
-      switchPortals={switchPortals}
-    >
+    <DashboardLayout navigation={navigation} portalName="Addis Mesob" portalSubtitle="System Admin" user={adminUser} switchPortals={switchPortals}>
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground">System Administration</h1>
             <p className="text-muted-foreground">Manage users, roles, and system configuration</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline">
-              <Download className="h-4 w-4 mr-2" />
-              Export Report
-            </Button>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Add User
-            </Button>
+            <Button variant="outline"><Download className="h-4 w-4 mr-2" />Export Report</Button>
+            <Button><Plus className="h-4 w-4 mr-2" />Add User</Button>
           </div>
         </div>
 
-        {/* Stats Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {statCards.map((stat) => (
             <Card key={stat.title}>
@@ -144,7 +160,6 @@ const SystemAdminDashboard: React.FC = () => {
           ))}
         </div>
 
-        {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -155,7 +170,6 @@ const SystemAdminDashboard: React.FC = () => {
 
           <TabsContent value="overview" className="space-y-4">
             <div className="grid md:grid-cols-2 gap-4">
-              {/* Recent Activities */}
               <Card>
                 <CardHeader>
                   <CardTitle>Recent System Activities</CardTitle>
@@ -180,7 +194,6 @@ const SystemAdminDashboard: React.FC = () => {
                 </CardContent>
               </Card>
 
-              {/* System Health */}
               <Card>
                 <CardHeader>
                   <CardTitle>System Health</CardTitle>
@@ -255,16 +268,12 @@ const SystemAdminDashboard: React.FC = () => {
                         <TableCell>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
+                              <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem><Eye className="h-4 w-4 mr-2" /> View</DropdownMenuItem>
                               <DropdownMenuItem><Edit className="h-4 w-4 mr-2" /> Edit</DropdownMenuItem>
-                              <DropdownMenuItem className="text-destructive">
-                                <Trash2 className="h-4 w-4 mr-2" /> Suspend
-                              </DropdownMenuItem>
+                              <DropdownMenuItem className="text-destructive"><Trash2 className="h-4 w-4 mr-2" /> Suspend</DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -301,9 +310,7 @@ const SystemAdminDashboard: React.FC = () => {
                       <TableCell><Badge>Admin</Badge></TableCell>
                       <TableCell><Badge variant="default" className="bg-green-600">Active</Badge></TableCell>
                       <TableCell>Today, 08:00</TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="icon"><Edit className="h-4 w-4" /></Button>
-                      </TableCell>
+                      <TableCell><Button variant="ghost" size="icon"><Edit className="h-4 w-4" /></Button></TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Fikadu Tadesse</TableCell>
@@ -311,9 +318,7 @@ const SystemAdminDashboard: React.FC = () => {
                       <TableCell><Badge className="bg-purple-600">Chairperson</Badge></TableCell>
                       <TableCell><Badge variant="default" className="bg-green-600">Active</Badge></TableCell>
                       <TableCell>Today, 10:15</TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="icon"><Edit className="h-4 w-4" /></Button>
-                      </TableCell>
+                      <TableCell><Button variant="ghost" size="icon"><Edit className="h-4 w-4" /></Button></TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Hana Girma</TableCell>
@@ -321,9 +326,7 @@ const SystemAdminDashboard: React.FC = () => {
                       <TableCell><Badge className="bg-yellow-600">Accountant</Badge></TableCell>
                       <TableCell><Badge variant="default" className="bg-green-600">Active</Badge></TableCell>
                       <TableCell>Today, 11:30</TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="icon"><Edit className="h-4 w-4" /></Button>
-                      </TableCell>
+                      <TableCell><Button variant="ghost" size="icon"><Edit className="h-4 w-4" /></Button></TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Kebede Alemu</TableCell>
@@ -331,9 +334,7 @@ const SystemAdminDashboard: React.FC = () => {
                       <TableCell><Badge className="bg-blue-600">Loan Committee</Badge></TableCell>
                       <TableCell><Badge variant="default" className="bg-green-600">Active</Badge></TableCell>
                       <TableCell>Yesterday</TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="icon"><Edit className="h-4 w-4" /></Button>
-                      </TableCell>
+                      <TableCell><Button variant="ghost" size="icon"><Edit className="h-4 w-4" /></Button></TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
