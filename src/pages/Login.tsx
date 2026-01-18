@@ -35,7 +35,7 @@ const Login = () => {
     setIsLoading(true);
     
     const { error } = await signIn(email, password);
-    
+
     if (error) {
       toast({
         title: "Login failed",
