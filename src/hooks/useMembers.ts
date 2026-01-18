@@ -6,23 +6,38 @@ type Member = Database['public']['Tables']['members']['Row'];
 type Profile = Database['public']['Tables']['profiles']['Row'];
 
 export interface MemberWithProfile extends Member {
-  profiles: Profile | null;
+  profile?: Profile | null;
 }
 
 export const useMembers = () => {
   return useQuery({
     queryKey: ['members'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Fetch members
+      const { data: members, error: membersError } = await supabase
         .from('members')
-        .select(`
-          *,
-          profiles (*)
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      return data as MemberWithProfile[];
+      if (membersError) throw membersError;
+      if (!members) return [];
+
+      // Fetch profiles for these members
+      const userIds = members.map(m => m.user_id);
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', userIds);
+
+      if (profilesError) throw profilesError;
+
+      // Combine members with their profiles
+      const result: MemberWithProfile[] = members.map(member => ({
+        ...member,
+        profile: profiles?.find(p => p.id === member.user_id) || null,
+      }));
+
+      return result;
     },
   });
 };
@@ -33,17 +48,27 @@ export const useMember = (userId: string | undefined) => {
     queryFn: async () => {
       if (!userId) return null;
       
-      const { data, error } = await supabase
+      const { data: member, error: memberError } = await supabase
         .from('members')
-        .select(`
-          *,
-          profiles (*)
-        `)
+        .select('*')
         .eq('user_id', userId)
         .maybeSingle();
 
-      if (error) throw error;
-      return data as MemberWithProfile | null;
+      if (memberError) throw memberError;
+      if (!member) return null;
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      return {
+        ...member,
+        profile,
+      } as MemberWithProfile;
     },
     enabled: !!userId,
   });
@@ -53,17 +78,29 @@ export const usePendingMembers = () => {
   return useQuery({
     queryKey: ['members', 'pending'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: members, error: membersError } = await supabase
         .from('members')
-        .select(`
-          *,
-          profiles (*)
-        `)
+        .select('*')
         .eq('status', 'pending')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      return data as MemberWithProfile[];
+      if (membersError) throw membersError;
+      if (!members) return [];
+
+      const userIds = members.map(m => m.user_id);
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', userIds);
+
+      if (profilesError) throw profilesError;
+
+      const result: MemberWithProfile[] = members.map(member => ({
+        ...member,
+        profile: profiles?.find(p => p.id === member.user_id) || null,
+      }));
+
+      return result;
     },
   });
 };
@@ -72,14 +109,14 @@ export const useMemberStats = () => {
   return useQuery({
     queryKey: ['members', 'stats'],
     queryFn: async () => {
-      const { data, error, count } = await supabase
+      const { data, error } = await supabase
         .from('members')
-        .select('status', { count: 'exact' });
+        .select('status');
 
       if (error) throw error;
 
       const stats = {
-        total: count || 0,
+        total: data?.length || 0,
         active: data?.filter(m => m.status === 'active').length || 0,
         pending: data?.filter(m => m.status === 'pending').length || 0,
         suspended: data?.filter(m => m.status === 'suspended').length || 0,

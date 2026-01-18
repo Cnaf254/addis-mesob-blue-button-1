@@ -13,7 +13,8 @@ import {
   ArrowDownLeft,
   CheckCircle,
   Clock,
-  RefreshCw
+  RefreshCw,
+  Loader2
 } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,9 +22,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useAuth } from '@/contexts/AuthContext';
+import { useAccountantDashboard } from '@/hooks/useDashboardData';
+import { useSavingsAccounts } from '@/hooks/useSavings';
+import { useTransactions } from '@/hooks/useTransactions';
+import { useApprovedLoans } from '@/hooks/useLoans';
 import { dummyTransactions, dummySavingsAccounts, dummyLoans, dashboardStats, formatCurrency, formatDate } from '@/data/dummyData';
-
-const accountantUser = { firstName: 'Hana', lastName: 'Girma', email: 'hana@addismesob.com', role: 'accountant', avatarUrl: null };
 
 const navigation = [
   { name: 'Overview', icon: LayoutDashboard, href: '/accountant' },
@@ -41,7 +45,34 @@ const switchPortals = [
 
 const AccountantDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview');
-  const stats = dashboardStats.accountant;
+  const { profile, user } = useAuth();
+  const { savingsStats, loanStats, transactionStats, isLoading } = useAccountantDashboard();
+  const { data: savingsAccounts } = useSavingsAccounts();
+  const { data: transactions } = useTransactions(10);
+  const { data: approvedLoans } = useApprovedLoans();
+
+  const isAuthenticated = !!user;
+
+  const accountantUser = profile ? {
+    firstName: profile.first_name,
+    lastName: profile.last_name,
+    email: profile.email,
+    role: 'accountant',
+    avatarUrl: profile.avatar_url,
+  } : {
+    firstName: 'Hana',
+    lastName: 'Girma',
+    email: 'hana@addismesob.com',
+    role: 'accountant',
+    avatarUrl: null,
+  };
+
+  const stats = isAuthenticated && savingsStats ? {
+    totalSavings: savingsStats.totalBalance,
+    monthlyCollections: transactionStats?.monthlyDeposits || 0,
+    pendingPayments: 0,
+    totalDisbursementsMonth: transactionStats?.monthlyDisbursements || 0,
+  } : dashboardStats.accountant;
 
   const statCards = [
     { title: 'Total Savings', value: formatCurrency(stats.totalSavings), icon: PiggyBank, color: 'text-green-600' },
@@ -50,7 +81,56 @@ const AccountantDashboard: React.FC = () => {
     { title: 'Disbursements (Month)', value: formatCurrency(stats.totalDisbursementsMonth), icon: ArrowUpRight, color: 'text-purple-600' },
   ];
 
-  const pendingDisbursements = dummyLoans.filter(l => l.status === 'approved');
+  const displaySavings = isAuthenticated && savingsAccounts?.length
+    ? savingsAccounts.slice(0, 4).map(s => ({
+        id: s.id,
+        memberName: s.member?.profile ? `${s.member.profile.first_name} ${s.member.profile.last_name}` : 'Unknown',
+        balance: Number(s.balance),
+        monthlyContribution: Number(s.monthly_contribution),
+      }))
+    : dummySavingsAccounts.slice(0, 4).map(s => ({
+        id: s.id,
+        memberName: s.memberName,
+        balance: s.balance,
+        monthlyContribution: s.monthlyContribution,
+      }));
+
+  const displayTransactions = isAuthenticated && transactions?.length
+    ? transactions.map(t => ({
+        id: t.id,
+        date: t.created_at,
+        memberName: t.member?.profile ? `${t.member.profile.first_name} ${t.member.profile.last_name}` : 'Unknown',
+        type: t.transaction_type,
+        amount: Number(t.amount),
+        balanceAfter: Number(t.balance_after || 0),
+      }))
+    : dummyTransactions.map(t => ({
+        id: t.id,
+        date: t.date,
+        memberName: t.memberName,
+        type: t.type,
+        amount: t.amount,
+        balanceAfter: t.balanceAfter,
+      }));
+
+  const pendingDisbursements = isAuthenticated && approvedLoans?.length
+    ? approvedLoans.map(l => ({
+        id: l.id,
+        memberName: l.member?.profile ? `${l.member.profile.first_name} ${l.member.profile.last_name}` : 'Unknown',
+        principalAmount: Number(l.principal_amount),
+        loanType: l.loan_type,
+      }))
+    : dummyLoans.filter(l => l.status === 'approved');
+
+  if (isLoading && isAuthenticated) {
+    return (
+      <DashboardLayout navigation={navigation} portalName="Addis Mesob" portalSubtitle="Accountant" user={accountantUser} switchPortals={switchPortals}>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout navigation={navigation} portalName="Addis Mesob" portalSubtitle="Accountant" user={accountantUser} switchPortals={switchPortals}>
@@ -83,7 +163,10 @@ const AccountantDashboard: React.FC = () => {
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="transactions">Transactions</TabsTrigger>
-            <TabsTrigger value="disbursements">Pending Disbursements {pendingDisbursements.length > 0 && <Badge variant="destructive" className="ml-2">{pendingDisbursements.length}</Badge>}</TabsTrigger>
+            <TabsTrigger value="disbursements">
+              Pending Disbursements 
+              {pendingDisbursements.length > 0 && <Badge variant="destructive" className="ml-2">{pendingDisbursements.length}</Badge>}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
@@ -92,10 +175,16 @@ const AccountantDashboard: React.FC = () => {
                 <CardHeader><CardTitle>Savings Summary</CardTitle></CardHeader>
                 <CardContent>
                   <Table>
-                    <TableHeader><TableRow><TableHead>Member</TableHead><TableHead>Balance</TableHead><TableHead>Monthly</TableHead></TableRow></TableHeader>
+                    <TableHeader>
+                      <TableRow><TableHead>Member</TableHead><TableHead>Balance</TableHead><TableHead>Monthly</TableHead></TableRow>
+                    </TableHeader>
                     <TableBody>
-                      {dummySavingsAccounts.slice(0,4).map(s => (
-                        <TableRow key={s.id}><TableCell>{s.memberName}</TableCell><TableCell>{formatCurrency(s.balance)}</TableCell><TableCell>{formatCurrency(s.monthlyContribution)}</TableCell></TableRow>
+                      {displaySavings.map(s => (
+                        <TableRow key={s.id}>
+                          <TableCell>{s.memberName}</TableCell>
+                          <TableCell>{formatCurrency(s.balance)}</TableCell>
+                          <TableCell>{formatCurrency(s.monthlyContribution)}</TableCell>
+                        </TableRow>
                       ))}
                     </TableBody>
                   </Table>
@@ -118,14 +207,18 @@ const AccountantDashboard: React.FC = () => {
               <CardHeader><CardTitle>Recent Transactions</CardTitle></CardHeader>
               <CardContent>
                 <Table>
-                  <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Member</TableHead><TableHead>Type</TableHead><TableHead>Amount</TableHead><TableHead>Balance After</TableHead></TableRow></TableHeader>
+                  <TableHeader>
+                    <TableRow><TableHead>Date</TableHead><TableHead>Member</TableHead><TableHead>Type</TableHead><TableHead>Amount</TableHead><TableHead>Balance After</TableHead></TableRow>
+                  </TableHeader>
                   <TableBody>
-                    {dummyTransactions.map(t => (
+                    {displayTransactions.map(t => (
                       <TableRow key={t.id}>
                         <TableCell>{formatDate(t.date)}</TableCell>
                         <TableCell>{t.memberName}</TableCell>
                         <TableCell><Badge variant="outline">{t.type.replace('_', ' ')}</Badge></TableCell>
-                        <TableCell className={t.type.includes('deposit') || t.type.includes('repayment') ? 'text-green-600' : 'text-red-600'}>{t.type.includes('deposit') || t.type.includes('repayment') ? '+' : '-'}{formatCurrency(t.amount)}</TableCell>
+                        <TableCell className={t.type.includes('deposit') || t.type.includes('repayment') ? 'text-green-600' : 'text-red-600'}>
+                          {t.type.includes('deposit') || t.type.includes('repayment') ? '+' : '-'}{formatCurrency(t.amount)}
+                        </TableCell>
                         <TableCell>{formatCurrency(t.balanceAfter)}</TableCell>
                       </TableRow>
                     ))}
@@ -145,7 +238,10 @@ const AccountantDashboard: React.FC = () => {
                   <div className="space-y-4">
                     {pendingDisbursements.map(loan => (
                       <div key={loan.id} className="flex justify-between items-center p-4 border rounded-lg">
-                        <div><p className="font-medium">{loan.memberName}</p><p className="text-sm text-muted-foreground">{formatCurrency(loan.principalAmount)} - {loan.loanType.replace('_',' ')}</p></div>
+                        <div>
+                          <p className="font-medium">{loan.memberName}</p>
+                          <p className="text-sm text-muted-foreground">{formatCurrency(loan.principalAmount)} - {loan.loanType.replace('_',' ')}</p>
+                        </div>
                         <Button className="bg-green-600 hover:bg-green-700"><DollarSign className="h-4 w-4 mr-2" />Process Disbursement</Button>
                       </div>
                     ))}
