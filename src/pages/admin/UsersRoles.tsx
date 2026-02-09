@@ -34,6 +34,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import {
   UserPlus,
@@ -41,7 +42,11 @@ import {
   Shield,
   Search,
   Loader2,
+  Trash2,
+  Edit,
 } from "lucide-react";
+import { useUsers, useCreateUser, useDeleteUser, useUpdateUserStatus } from "@/hooks/useAdminApi";
+import type { CreateUserPayload } from "@/lib/api/admin";
 
 const roles = [
   { value: "member", label: "Member" },
@@ -55,54 +60,7 @@ const genders = ["Male", "Female"];
 const maritalStatuses = ["Single", "Married", "Divorced", "Widowed"];
 const academicLevels = ["Primary", "Secondary", "Diploma", "Degree", "Masters", "PhD", "Other"];
 
-interface NewUserForm {
-  // Account
-  email: string;
-  password: string;
-  role: string;
-  // Personal
-  first_name: string;
-  middle_name: string;
-  last_name: string;
-  phone: string;
-  alternate_phone: string;
-  gender: string;
-  dob: string;
-  national_id: string;
-  marital_status: string;
-  // Employment
-  employee_id: string;
-  department: string;
-  occupation: string;
-  academic_level: string;
-  work_experience: string;
-  monthly_income: number;
-  monthly_saving_amount: number;
-  share_count: number;
-  // Address
-  address_line_1: string;
-  address_line_2: string;
-  city: string;
-  region: string;
-  postal_code: string;
-  // Emergency
-  emergency_contact_name: string;
-  emergency_contact_phone: string;
-  emergency_contact_relationship: string;
-  emergency_contact_city: string;
-  emergency_contact_region: string;
-  // Heir
-  heir_name: string;
-  heir_relationship: string;
-  heir_phone: string;
-  heir_city: string;
-  heir_region: string;
-  heir_share_percent: number;
-  // Referral
-  referred_by: string;
-}
-
-const initialForm: NewUserForm = {
+const initialForm: CreateUserPayload = {
   email: "", password: "", role: "member",
   first_name: "", middle_name: "", last_name: "",
   phone: "", alternate_phone: "", gender: "", dob: "",
@@ -118,67 +76,79 @@ const initialForm: NewUserForm = {
   referred_by: "",
 };
 
-interface UserRow {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  status: string;
-}
-
 export default function UsersAndRoles() {
-  const [users, setUsers] = useState<UserRow[]>([]);
   const [openCreate, setOpenCreate] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("account");
-  const [form, setForm] = useState<NewUserForm>(initialForm);
+  const [form, setForm] = useState<CreateUserPayload>(initialForm);
 
-  const set = (field: keyof NewUserForm) => (
+  // API Hooks
+  const { data: usersData, isLoading, error } = useUsers({ search: searchQuery });
+  const createUserMutation = useCreateUser();
+  const deleteUserMutation = useDeleteUser();
+  const updateStatusMutation = useUpdateUserStatus();
+
+  const set = (field: keyof CreateUserPayload) => (
     e: React.ChangeEvent<HTMLInputElement>
   ) => setForm((p) => ({ ...p, [field]: e.target.value }));
 
-  const setNum = (field: keyof NewUserForm) => (
+  const setNum = (field: keyof CreateUserPayload) => (
     e: React.ChangeEvent<HTMLInputElement>
   ) => setForm((p) => ({ ...p, [field]: Number(e.target.value) || 0 }));
 
-  const setSelect = (field: keyof NewUserForm) => (val: string) =>
+  const setSelect = (field: keyof CreateUserPayload) => (val: string) =>
     setForm((p) => ({ ...p, [field]: val }));
 
-  const handleCreateUser = () => {
+  const handleCreateUser = async () => {
     if (!form.email || !form.password || !form.first_name || !form.last_name) {
       toast.error("Please fill in required fields: Email, Password, First Name, Last Name");
       return;
     }
 
-    setLoading(true);
-
-    // Simulate registration — add to local state
-    const newId = crypto.randomUUID();
-    setUsers((prev) => [
-      ...prev,
-      {
-        id: newId,
-        name: `${form.first_name} ${form.last_name}`,
-        email: form.email,
-        role: form.role,
-        status: "Pending",
-      },
-    ]);
-
-    toast.success("User registered successfully!");
-    setForm(initialForm);
-    setActiveTab("account");
-    setOpenCreate(false);
-    setLoading(false);
+    try {
+      await createUserMutation.mutateAsync(form);
+      toast.success("User registered successfully!");
+      setForm(initialForm);
+      setActiveTab("account");
+      setOpenCreate(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create user");
+    }
   };
 
-  const filteredUsers = users.filter(
-    (u) =>
-      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.role.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const handleDeleteUser = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this user?")) return;
+    
+    try {
+      await deleteUserMutation.mutateAsync(id);
+      toast.success("User deleted successfully");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete user");
+    }
+  };
+
+  const handleToggleStatus = async (id: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
+    try {
+      await updateStatusMutation.mutateAsync({ id, status: newStatus });
+      toast.success(`User ${newStatus === 'active' ? 'activated' : 'suspended'}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update status");
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'active':
+        return <Badge className="bg-accent text-accent-foreground">Active</Badge>;
+      case 'pending':
+        return <Badge variant="secondary">Pending</Badge>;
+      case 'suspended':
+        return <Badge variant="destructive">Suspended</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8 space-y-6">
@@ -256,15 +226,15 @@ export default function UsersAndRoles() {
                   <SectionHeading title="Personal Information" />
                   <FormGrid>
                     <FormField label="First Name *" value={form.first_name} onChange={set("first_name")} placeholder="First name" />
-                    <FormField label="Middle Name" value={form.middle_name} onChange={set("middle_name")} placeholder="Middle name" />
+                    <FormField label="Middle Name" value={form.middle_name || ''} onChange={set("middle_name")} placeholder="Middle name" />
                     <FormField label="Last Name *" value={form.last_name} onChange={set("last_name")} placeholder="Last name" />
-                    <FormField label="National ID" value={form.national_id} onChange={set("national_id")} placeholder="National ID number" />
-                    <FormField label="Date of Birth" value={form.dob} onChange={set("dob")} type="date" />
+                    <FormField label="National ID" value={form.national_id || ''} onChange={set("national_id")} placeholder="National ID number" />
+                    <FormField label="Date of Birth" value={form.dob || ''} onChange={set("dob")} type="date" />
                   </FormGrid>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="text-sm font-medium">Gender</Label>
-                      <Select value={form.gender} onValueChange={setSelect("gender")}>
+                      <Select value={form.gender || ''} onValueChange={setSelect("gender")}>
                         <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
                         <SelectContent>
                           {genders.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
@@ -273,7 +243,7 @@ export default function UsersAndRoles() {
                     </div>
                     <div className="space-y-2">
                       <Label className="text-sm font-medium">Marital Status</Label>
-                      <Select value={form.marital_status} onValueChange={setSelect("marital_status")}>
+                      <Select value={form.marital_status || ''} onValueChange={setSelect("marital_status")}>
                         <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
                         <SelectContent>
                           {maritalStatuses.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
@@ -287,24 +257,24 @@ export default function UsersAndRoles() {
                 <TabsContent value="contact" className="mt-0 space-y-4">
                   <SectionHeading title="Contact Information" />
                   <FormGrid>
-                    <FormField label="Phone Number" value={form.phone} onChange={set("phone")} placeholder="+251 9XX XXX XXX" />
-                    <FormField label="Alternate Phone" value={form.alternate_phone} onChange={set("alternate_phone")} placeholder="+251 9XX XXX XXX" />
+                    <FormField label="Phone Number" value={form.phone || ''} onChange={set("phone")} placeholder="+251 9XX XXX XXX" />
+                    <FormField label="Alternate Phone" value={form.alternate_phone || ''} onChange={set("alternate_phone")} placeholder="+251 9XX XXX XXX" />
                   </FormGrid>
-                  <FormField label="Referred By" value={form.referred_by} onChange={set("referred_by")} placeholder="Name of referrer (optional)" />
+                  <FormField label="Referred By" value={form.referred_by || ''} onChange={set("referred_by")} placeholder="Name of referrer (optional)" />
                 </TabsContent>
 
                 {/* EMPLOYMENT TAB */}
                 <TabsContent value="employment" className="mt-0 space-y-4">
                   <SectionHeading title="Employment & Financial" />
                   <FormGrid>
-                    <FormField label="Employee ID" value={form.employee_id} onChange={set("employee_id")} placeholder="Employee ID" />
-                    <FormField label="Department" value={form.department} onChange={set("department")} placeholder="Department" />
-                    <FormField label="Occupation" value={form.occupation} onChange={set("occupation")} placeholder="Job title" />
-                    <FormField label="Work Experience" value={form.work_experience} onChange={set("work_experience")} placeholder="e.g. 5 years" />
+                    <FormField label="Employee ID" value={form.employee_id || ''} onChange={set("employee_id")} placeholder="Employee ID" />
+                    <FormField label="Department" value={form.department || ''} onChange={set("department")} placeholder="Department" />
+                    <FormField label="Occupation" value={form.occupation || ''} onChange={set("occupation")} placeholder="Job title" />
+                    <FormField label="Work Experience" value={form.work_experience || ''} onChange={set("work_experience")} placeholder="e.g. 5 years" />
                   </FormGrid>
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Academic Level</Label>
-                    <Select value={form.academic_level} onValueChange={setSelect("academic_level")}>
+                    <Select value={form.academic_level || ''} onValueChange={setSelect("academic_level")}>
                       <SelectTrigger><SelectValue placeholder="Select level" /></SelectTrigger>
                       <SelectContent>
                         {academicLevels.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
@@ -313,9 +283,9 @@ export default function UsersAndRoles() {
                   </div>
                   <SectionHeading title="Financial" />
                   <FormGrid>
-                    <FormField label="Monthly Income (ETB)" value={form.monthly_income} onChange={setNum("monthly_income")} type="number" placeholder="0" />
-                    <FormField label="Monthly Saving (ETB)" value={form.monthly_saving_amount} onChange={setNum("monthly_saving_amount")} type="number" placeholder="500" />
-                    <FormField label="Share Count" value={form.share_count} onChange={setNum("share_count")} type="number" placeholder="0" />
+                    <FormField label="Monthly Income (ETB)" value={form.monthly_income || 0} onChange={setNum("monthly_income")} type="number" placeholder="0" />
+                    <FormField label="Monthly Saving (ETB)" value={form.monthly_saving_amount || 0} onChange={setNum("monthly_saving_amount")} type="number" placeholder="500" />
+                    <FormField label="Share Count" value={form.share_count || 0} onChange={setNum("share_count")} type="number" placeholder="0" />
                   </FormGrid>
                 </TabsContent>
 
@@ -323,11 +293,11 @@ export default function UsersAndRoles() {
                 <TabsContent value="address" className="mt-0 space-y-4">
                   <SectionHeading title="Address" />
                   <FormGrid>
-                    <FormField label="Address Line 1" value={form.address_line_1} onChange={set("address_line_1")} placeholder="Street address" />
-                    <FormField label="Address Line 2" value={form.address_line_2} onChange={set("address_line_2")} placeholder="Apt, suite, etc." />
-                    <FormField label="City / Sub-City" value={form.city} onChange={set("city")} placeholder="City" />
-                    <FormField label="Region" value={form.region} onChange={set("region")} placeholder="Region / Zone" />
-                    <FormField label="Postal Code" value={form.postal_code} onChange={set("postal_code")} placeholder="Postal code" />
+                    <FormField label="Address Line 1" value={form.address_line_1 || ''} onChange={set("address_line_1")} placeholder="Street address" />
+                    <FormField label="Address Line 2" value={form.address_line_2 || ''} onChange={set("address_line_2")} placeholder="Apt, suite, etc." />
+                    <FormField label="City / Sub-City" value={form.city || ''} onChange={set("city")} placeholder="City" />
+                    <FormField label="Region" value={form.region || ''} onChange={set("region")} placeholder="Region / Zone" />
+                    <FormField label="Postal Code" value={form.postal_code || ''} onChange={set("postal_code")} placeholder="Postal code" />
                   </FormGrid>
                 </TabsContent>
 
@@ -335,11 +305,11 @@ export default function UsersAndRoles() {
                 <TabsContent value="emergency" className="mt-0 space-y-4">
                   <SectionHeading title="Emergency Contact" />
                   <FormGrid>
-                    <FormField label="Contact Name" value={form.emergency_contact_name} onChange={set("emergency_contact_name")} placeholder="Full name" />
-                    <FormField label="Contact Phone" value={form.emergency_contact_phone} onChange={set("emergency_contact_phone")} placeholder="Phone number" />
-                    <FormField label="Relationship" value={form.emergency_contact_relationship} onChange={set("emergency_contact_relationship")} placeholder="e.g. Spouse, Parent" />
-                    <FormField label="City" value={form.emergency_contact_city} onChange={set("emergency_contact_city")} placeholder="City" />
-                    <FormField label="Region" value={form.emergency_contact_region} onChange={set("emergency_contact_region")} placeholder="Region" />
+                    <FormField label="Contact Name" value={form.emergency_contact_name || ''} onChange={set("emergency_contact_name")} placeholder="Full name" />
+                    <FormField label="Contact Phone" value={form.emergency_contact_phone || ''} onChange={set("emergency_contact_phone")} placeholder="Phone number" />
+                    <FormField label="Relationship" value={form.emergency_contact_relationship || ''} onChange={set("emergency_contact_relationship")} placeholder="e.g. Spouse, Parent" />
+                    <FormField label="City" value={form.emergency_contact_city || ''} onChange={set("emergency_contact_city")} placeholder="City" />
+                    <FormField label="Region" value={form.emergency_contact_region || ''} onChange={set("emergency_contact_region")} placeholder="Region" />
                   </FormGrid>
                 </TabsContent>
 
@@ -347,12 +317,12 @@ export default function UsersAndRoles() {
                 <TabsContent value="heir" className="mt-0 space-y-4">
                   <SectionHeading title="Heir / Beneficiary" />
                   <FormGrid>
-                    <FormField label="Heir Name" value={form.heir_name} onChange={set("heir_name")} placeholder="Full name" />
-                    <FormField label="Relationship" value={form.heir_relationship} onChange={set("heir_relationship")} placeholder="e.g. Son, Daughter" />
-                    <FormField label="Phone" value={form.heir_phone} onChange={set("heir_phone")} placeholder="Phone number" />
-                    <FormField label="City" value={form.heir_city} onChange={set("heir_city")} placeholder="City" />
-                    <FormField label="Region" value={form.heir_region} onChange={set("heir_region")} placeholder="Region" />
-                    <FormField label="Share %" value={form.heir_share_percent} onChange={setNum("heir_share_percent")} type="number" placeholder="100" />
+                    <FormField label="Heir Name" value={form.heir_name || ''} onChange={set("heir_name")} placeholder="Full name" />
+                    <FormField label="Relationship" value={form.heir_relationship || ''} onChange={set("heir_relationship")} placeholder="e.g. Son, Daughter" />
+                    <FormField label="Phone" value={form.heir_phone || ''} onChange={set("heir_phone")} placeholder="Phone number" />
+                    <FormField label="City" value={form.heir_city || ''} onChange={set("heir_city")} placeholder="City" />
+                    <FormField label="Region" value={form.heir_region || ''} onChange={set("heir_region")} placeholder="Region" />
+                    <FormField label="Share %" value={form.heir_share_percent || 100} onChange={setNum("heir_share_percent")} type="number" placeholder="100" />
                   </FormGrid>
                 </TabsContent>
               </ScrollArea>
@@ -360,8 +330,8 @@ export default function UsersAndRoles() {
               {/* Footer */}
               <div className="flex items-center justify-between border-t p-4 bg-muted/30">
                 <TabNavButtons active={activeTab} onTabChange={setActiveTab} />
-                <Button onClick={handleCreateUser} disabled={loading} className="gap-2">
-                  {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                <Button onClick={handleCreateUser} disabled={createUserMutation.isPending} className="gap-2">
+                  {createUserMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                   Register User
                 </Button>
               </div>
@@ -388,70 +358,84 @@ export default function UsersAndRoles() {
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredUsers.length === 0 ? (
+          {isLoading ? (
+            <div className="space-y-3">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : error ? (
+            <div className="text-center py-8 text-destructive">
+              Failed to load users. Please try again.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                    No users registered yet. Click "Register User" to add one.
-                  </TableCell>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ) : (
-                filteredUsers.map((u) => (
-                  <TableRow key={u.id}>
-                    <TableCell className="font-medium">{u.name}</TableCell>
-                    <TableCell>{u.email}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary" className="capitalize">{u.role}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={u.status === "Active" ? "badge-active" : "badge-pending"}>
-                        {u.status}
-                      </Badge>
+              </TableHeader>
+              <TableBody>
+                {usersData?.users && usersData.users.length > 0 ? (
+                  usersData.users.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell className="font-medium">
+                        {user.first_name} {user.last_name}
+                      </TableCell>
+                      <TableCell>{user.email}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="capitalize">
+                          {user.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{getStatusBadge(user.status)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleToggleStatus(user.id, user.status)}
+                            disabled={updateStatusMutation.isPending}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteUser(user.id)}
+                            disabled={deleteUserMutation.isPending}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                      No users found. Click "Register User" to add one.
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>
   );
 }
 
-/* ================= HELPERS ================= */
-
-const tabOrder = ["account", "personal", "contact", "employment", "address", "emergency", "heir"];
-
-function TabNavButtons({ active, onTabChange }: { active: string; onTabChange: (t: string) => void }) {
-  const idx = tabOrder.indexOf(active);
-  return (
-    <div className="flex gap-2">
-      {idx > 0 && (
-        <Button variant="outline" size="sm" onClick={() => onTabChange(tabOrder[idx - 1])}>
-          Previous
-        </Button>
-      )}
-      {idx < tabOrder.length - 1 && (
-        <Button variant="secondary" size="sm" onClick={() => onTabChange(tabOrder[idx + 1])}>
-          Next
-        </Button>
-      )}
-    </div>
-  );
-}
+/* ============ HELPER COMPONENTS ============ */
 
 function SectionHeading({ title }: { title: string }) {
-  return <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{title}</h3>;
+  return <h3 className="text-sm font-semibold text-foreground border-b pb-2">{title}</h3>;
 }
 
 function FormGrid({ children }: { children: React.ReactNode }) {
@@ -475,6 +459,40 @@ function FormField({
     <div className="space-y-2">
       <Label className="text-sm font-medium">{label}</Label>
       <Input type={type} value={value} onChange={onChange} placeholder={placeholder} />
+    </div>
+  );
+}
+
+const tabOrder = ["account", "personal", "contact", "employment", "address", "emergency", "heir"];
+
+function TabNavButtons({
+  active,
+  onTabChange,
+}: {
+  active: string;
+  onTabChange: (tab: string) => void;
+}) {
+  const idx = tabOrder.indexOf(active);
+  return (
+    <div className="flex gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={idx === 0}
+        onClick={() => onTabChange(tabOrder[idx - 1])}
+      >
+        Previous
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={idx === tabOrder.length - 1}
+        onClick={() => onTabChange(tabOrder[idx + 1])}
+      >
+        Next
+      </Button>
     </div>
   );
 }
