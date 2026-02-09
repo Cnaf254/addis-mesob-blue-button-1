@@ -82,7 +82,7 @@ export default function Repayments() {
               <div>Type: {loan.type}</div>
               <div>Outstanding Balance: <span className="font-bold">{loan.balance} ETB</span></div>
               <div>Next Due: <span className="font-bold">{loan.nextDue.date}</span> (<span className="font-bold">{loan.nextDue.amount} ETB</span>)</div>
-              <Button variant={selectedLoan === loan.id ? "primary" : "outline"} size="sm" className="mt-2" onClick={() => setSelectedLoan(loan.id)}>
+              <Button variant={selectedLoan === loan.id ? "default" : "outline"} size="sm" className="mt-2" onClick={() => setSelectedLoan(loan.id)}>
                 {selectedLoan === loan.id ? "Selected" : "Select"}
               </Button>
             </div>
@@ -115,7 +115,7 @@ export default function Repayments() {
                 <input type="file" name="proof" onChange={handlePaymentChange} className="w-full border rounded p-2" />
               </div>
             )}
-            <Button type="submit" variant="primary">Submit Repayment</Button>
+            <Button type="submit" variant="default">Submit Repayment</Button>
           </form>
         )}
       </div>

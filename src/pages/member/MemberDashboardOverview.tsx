@@ -78,7 +78,7 @@ export default function MemberDashboardOverview() {
         </div>
         <div className="flex gap-4 mt-4">
           <Link to="/dashboard/apply-loan">
-            <Button variant="primary">Apply for Loan</Button>
+            <Button variant="default">Apply for Loan</Button>
           </Link>
           <Link to="/dashboard/repayments">
             <Button variant="secondary">Make Repayment</Button>
